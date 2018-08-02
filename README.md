@@ -3,7 +3,7 @@
 ## Introduction
 
 This module serves as a learning exercise for me, and hopefully for
-others too, when doing [Nginx](http://nginx.org) module development. 
+others too, when doing [NGINX](http://nginx.org) module development. 
 
 I [stole](http://dominicfallows.com/2011/02/20/hello-world-nginx-module-3/)
 the code and added some notes using mostly Evan Miller's
@@ -16,22 +16,32 @@ done by [Antoine Bonavita](http://antoine.bonavita.free.fr/) that also
 mantains a [Nginx Discovery](http://www.nginx-discovery.com/) blog to
 document his journey on Nginx module development.
 
+This small extension to the base hello\_world module adds an argument to print hello world in different languages.
+
 ## Installation
 
-   1. Configure Nginx adding this module with:
+   1. Configure NGINX adding this module with:
           
           ./configure (...) --add-module=/path/to/nginx-hello-world-module
        
-   2. Build Nginx as usual with `make`.
+   2. Build NGINX as usual with `make`.
    
-   3. Configure the module. There's only one directive `hello_world`
+   3. Configure the module. There's only one directive `hello_world [en|es|fr|in]`
       that is supported in the **location** context only.
+
+    * en: hello world
+    
+    * fr: bounjour monde
+    
+    * in: namste duniya
+ 
+    * es: hola mundo
       
       Example:
           
           location = /test {
              
-             hello_world;
+             hello_world in;
           
           }
 
@@ -39,7 +49,7 @@ document his journey on Nginx module development.
           
           curl -i http://example.com/test
           
-      should return the **hello world** string as the response body.
+      should return the **namste duniya** string as the response body.
 
 ## Further reading
 
@@ -52,22 +62,11 @@ document his journey on Nginx module development.
       
 ## TODO
 
- 1. Add an argument to the `hello_world` directive specifying the
-    language. For example:
-    
-    * en: hello world
-    
-    * fr: bounjour monde
-    
-    * pt: olá mundo
- 
-    * es: hola mundo
- 
- 2. Make the `hello_world` directive be also defined in the **if in
+ 1. Make the `hello_world` directive be also defined in the **if in
     location** context (`NGX_HTTP_LIF_CONF`) in
     `ngx_http_config.h`. Which implies defining a **merge
     configuration** function.
  
- 3. Document everything with
+ 2. Document everything with
     [Doxygen](https://secure.wikimedia.org/wikipedia/en/wiki/Doxygen)
     linking the relevant header and source files from the Nginx core.
