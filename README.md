@@ -33,7 +33,7 @@ This small extension to the base hello\_world module adds an argument to print h
     
     * fr: bounjour monde
     
-    * in: namste duniya
+    * in: namaste duniya
  
     * es: hola mundo
       
@@ -49,7 +49,7 @@ This small extension to the base hello\_world module adds an argument to print h
           
           curl -i http://example.com/test
           
-      should return the **namste duniya** string as the response body.
+      should return the **namaste duniya** string as the response body.
 
 ## Further reading
 
