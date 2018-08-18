@@ -32,6 +32,7 @@
 
 #define HELLO_WORLD_FILE_SIZE 2048
 #define HELLO_WORLD_HASH_MAX_SIZE 256
+#define HELLO_WORLD_MAX_LANGS 50
 #define ACC_LANG_NOT_FOUND "Accept Language header not found or no valid languages found."
 
 static char *ngx_http_hello_world(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
@@ -92,6 +93,18 @@ ngx_module_t ngx_http_hello_world_module = {
     NGX_MODULE_V1_PADDING
 };
 
+static int ngx_libc_cdecl
+ngx_hello_world_sort_quality(const void *one, const void *two)
+{
+    ngx_buf_t *first = *(ngx_buf_t **) one;
+    ngx_buf_t *second = *(ngx_buf_t **) two;
+
+    ngx_uint_t first_quality = (ngx_uint_t) first->tag;
+    ngx_uint_t second_quality = (ngx_uint_t) second->tag;
+
+    return second_quality - first_quality;
+}
+
 /**
  * Content handler.
  *
@@ -103,9 +116,10 @@ ngx_module_t ngx_http_hello_world_module = {
 static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
 {
     ngx_buf_t *b=NULL;
+    ngx_buf_t *buf[HELLO_WORLD_MAX_LANGS];
     ngx_chain_t  *chain, *cl, **ll;
     ngx_http_hello_world_loc_conf_t *hwlc;
-    ngx_uint_t key, response_size=0, size;
+    ngx_uint_t key, response_size=0, size, quality, buf_index=0;
     u_char *hello_world_str, *curr_key;
     char *quality_str;
 
@@ -123,11 +137,13 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
 	curr_key = (u_char *) strtok((char *) r->headers_in.accept_language->value.data, ", ");
 	ll = &chain;
 
-	while (curr_key != NULL) {
+	while (curr_key != NULL && buf_index < HELLO_WORLD_MAX_LANGS) {
 	    /* Search for quality value ie ;q=0.5 */
+	    quality=10;
 	    quality_str = ngx_strchr(curr_key, ';');
 	    if (quality_str != NULL) {
-	        *quality_str = '\0';
+	        *quality_str++ = '\0';
+                sscanf(quality_str, "q=0.%1ld", &quality);
 	    }
 	    
             key = ngx_hash_key_lc(curr_key, ngx_strlen(curr_key));
@@ -141,24 +157,28 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
                     return NGX_HTTP_INTERNAL_SERVER_ERROR;
                 }
 	        b->last = ngx_sprintf(b->last, "%s\n", hello_world_str);
+		b->tag = (void *) quality;
                 b->last_buf = 0; /* there will be more buffers in the request */
-
-	        cl = ngx_alloc_chain_link(r->pool);
-	        if (cl == NULL) {
-                    return NGX_HTTP_INTERNAL_SERVER_ERROR;
-                }
-	        cl->buf = b;
-	        *ll = cl;
-	        ll = &cl->next;
+		buf[buf_index++] = b;
 	    }
 
 	    curr_key = (u_char *) strtok(NULL, ", ");
 	}
-	*ll = NULL;
-	if (b != NULL) {
-	    b->last_buf = 1;
-	}
+	ngx_qsort(buf, buf_index, sizeof(ngx_buf_t *), ngx_hello_world_sort_quality);
 
+	for (ngx_uint_t i = 0; i < buf_index; i++) {
+	    cl = ngx_alloc_chain_link(r->pool);
+	    if (cl == NULL) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
+	    cl->buf = buf[i];
+	    *ll = cl;
+	    ll = &cl->next;
+	}
+	*ll = NULL;
+	if (buf_index != 0) {
+	    buf[buf_index-1]->last_buf = 1;
+	}
     }
 
     if (response_size == 0) {
