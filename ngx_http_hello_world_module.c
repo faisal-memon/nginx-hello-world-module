@@ -30,11 +30,9 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
-
-#define HELLO_WORLD    "hello world"
-#define HELLO_WORLD_ES "hola mundo"
-#define HELLO_WORLD_FR "bonjour monde"
-#define HELLO_WORLD_IN "namaste duniya"
+#define HELLO_WORLD_FILE_SIZE 2048
+#define HELLO_WORLD_HASH_MAX_SIZE 256
+#define ACC_LANG_NOT_FOUND "Accept Language header not found or no valid languages found."
 
 static char *ngx_http_hello_world(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r);
@@ -42,7 +40,8 @@ static void *ngx_http_hello_world_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_hello_world_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 
 typedef struct {
-    ngx_str_t hello_world;
+    ngx_hash_t hash;
+    ngx_hash_keys_arrays_t hash_keys;
 } ngx_http_hello_world_loc_conf_t;
 
 /**
@@ -52,7 +51,7 @@ typedef struct {
 static ngx_command_t ngx_http_hello_world_commands[] = {
 
     { ngx_string("hello_world"), /* directive */
-      NGX_HTTP_LOC_CONF|NGX_CONF_NOARGS|NGX_CONF_TAKE1, /* location context and takes
+      NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1, /* location context and takes
                                             no arguments*/
       ngx_http_hello_world, /* configuration setup function */
       0, /* No offset. Only one context is supported. */
@@ -61,12 +60,6 @@ static ngx_command_t ngx_http_hello_world_commands[] = {
 
     ngx_null_command /* command termination */
 };
-
-/* The hello world string. */
-static u_char ngx_hello_world[] = HELLO_WORLD;
-static u_char ngx_hello_world_es[] = HELLO_WORLD_ES;
-static u_char ngx_hello_world_fr[] = HELLO_WORLD_FR;
-static u_char ngx_hello_world_in[] = HELLO_WORLD_IN;
 
 /* The module context. */
 static ngx_http_module_t ngx_http_hello_world_module_ctx = {
@@ -109,9 +102,12 @@ ngx_module_t ngx_http_hello_world_module = {
  */
 static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
 {
-    ngx_buf_t *b;
-    ngx_chain_t out;
+    ngx_buf_t *b=NULL;
+    ngx_chain_t  *chain, *cl, **ll;
     ngx_http_hello_world_loc_conf_t *hwlc;
+    ngx_uint_t key, response_size=0, size;
+    u_char *hello_world_str, *curr_key;
+    char *quality_str;
 
     hwlc = ngx_http_get_module_loc_conf(r, ngx_http_hello_world_module);
     if (hwlc == NULL) {
@@ -123,27 +119,74 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
     r->headers_out.content_type.len = sizeof("text/plain") - 1;
     r->headers_out.content_type.data = (u_char *) "text/plain";
 
-    /* Allocate a new buffer for sending out the reply. */
-    b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
+    if (r->headers_in.accept_language != NULL) {
+	curr_key = (u_char *) strtok((char *) r->headers_in.accept_language->value.data, ", ");
+	ll = &chain;
 
-    /* Insertion in the buffer chain. */
-    out.buf = b;
-    out.next = NULL; /* just one buffer */
+	while (curr_key != NULL) {
+	    /* Search for quality value ie ;q=0.5 */
+	    quality_str = ngx_strchr(curr_key, ';');
+	    if (quality_str != NULL) {
+	        *quality_str = '\0';
+	    }
+	    
+            key = ngx_hash_key_lc(curr_key, ngx_strlen(curr_key));
+	    ngx_strlow(curr_key, curr_key, ngx_strlen(curr_key));
+	    hello_world_str = ngx_hash_find(&hwlc->hash, key, curr_key, ngx_strlen(curr_key));
+	    if (hello_world_str != NULL) {
+                size = ngx_strlen(hello_world_str) + 2; /* Append \n */
+	        response_size += size - 1;
+                b = ngx_create_temp_buf(r->pool, size);
+	        if (b == NULL) {
+                    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+                }
+	        b->last = ngx_sprintf(b->last, "%s\n", hello_world_str);
+                b->last_buf = 0; /* there will be more buffers in the request */
 
+	        cl = ngx_alloc_chain_link(r->pool);
+	        if (cl == NULL) {
+                    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+                }
+	        cl->buf = b;
+	        *ll = cl;
+	        ll = &cl->next;
+	    }
 
-    b->pos = hwlc->hello_world.data; /* first position in memory of the data */
-    b->last = hwlc->hello_world.data + hwlc->hello_world.len; /* last position in memory of the data */
-    b->memory = 1; /* content is in read-only memory */
-    b->last_buf = 1; /* there will be no more buffers in the request */
+	    curr_key = (u_char *) strtok(NULL, ", ");
+	}
+	*ll = NULL;
+	if (b != NULL) {
+	    b->last_buf = 1;
+	}
+
+    }
+
+    if (response_size == 0) {
+	size = sizeof(ACC_LANG_NOT_FOUND);
+	response_size += size - 1;
+
+	chain = ngx_alloc_chain_link(r->pool);
+	if (chain == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        b = ngx_pcalloc(r->pool, sizeof(ngx_buf_t));
+	b->pos = (u_char *) ACC_LANG_NOT_FOUND;
+	b->last = (u_char *) ACC_LANG_NOT_FOUND + size - 1;
+        b->memory = 1; /* content is in read-only memory */
+        b->last_buf = 1; /* there will be no more buffers in the request */
+	chain->buf = b;
+	chain->next = NULL;
+    }
 
     /* Sending the headers for the reply. */
     r->headers_out.status = NGX_HTTP_OK; /* 200 status code */
     /* Get the content length of the body. */
-    r->headers_out.content_length_n = hwlc->hello_world.len;
+    r->headers_out.content_length_n = response_size;
     ngx_http_send_header(r); /* Send the headers */
 
     /* Send the body, and return the status code of the output filter chain. */
-    return ngx_http_output_filter(r, &out);
+    return ngx_http_output_filter(r, chain);
 } /* ngx_http_hello_world_handler */
 
 /**
@@ -163,6 +206,14 @@ static char *ngx_http_hello_world(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
     ngx_http_core_loc_conf_t *clcf; /* pointer to core location configuration */
     ngx_http_hello_world_loc_conf_t *hwlc;
     ngx_str_t *value = cf->args->elts;
+    char *file_buf, *lang_code, *hello_world_str;
+    size_t size;
+    ngx_file_t file;
+    ngx_file_info_t fi;
+    const char delim_lang[2] = " ";
+    const char delim_hello[2] = "\n";
+    ngx_str_t key;
+    ngx_hash_init_t hash;
 
     /* Install the hello world handler. */
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
@@ -174,19 +225,66 @@ static char *ngx_http_hello_world(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
         return NGX_CONF_ERROR;
     }
 
-    if ((cf->args->nelts == 1) || (ngx_strcmp(value[1].data, "en") == 0)) {
-	hwlc->hello_world.len = sizeof(ngx_hello_world);
-	hwlc->hello_world.data = ngx_hello_world;
-    } else if (ngx_strcmp(value[1].data, "es") == 0) {
-	hwlc->hello_world.len = sizeof(ngx_hello_world_es);
-	hwlc->hello_world.data = ngx_hello_world_es;
-    } else if (ngx_strcmp(value[1].data, "fr") == 0) {
-	hwlc->hello_world.len = sizeof(ngx_hello_world_fr);
-	hwlc->hello_world.data = ngx_hello_world_fr;
-    } else if (ngx_strcmp(value[1].data, "in") == 0) {
-	hwlc->hello_world.len = sizeof(ngx_hello_world_in);
-	hwlc->hello_world.data = ngx_hello_world_in;
-    } else {
+    /* Open up the file and read it into a buffer */
+    ngx_memzero(&file, sizeof(ngx_file_t));
+    file.name = value[1];
+    file.log = cf->log;
+
+    file.fd = ngx_open_file(file.name.data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    if (file.fd == NGX_INVALID_FILE) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,"File %s not found", file.name.data);
+        return NGX_CONF_ERROR;
+    }
+
+    if (ngx_fd_info(file.fd, &fi) == NGX_FILE_ERROR) {
+        ngx_conf_log_error(NGX_LOG_CRIT, cf, ngx_errno,
+                           ngx_fd_info_n " \"%s\" failed", file.name.data);
+        return NGX_CONF_ERROR;
+    }
+
+    size = (size_t) ngx_file_size(&fi);
+    if (size > HELLO_WORLD_FILE_SIZE) {
+        size = HELLO_WORLD_FILE_SIZE;
+    }	
+
+    file_buf = ngx_pcalloc(cf->pool, size+1);
+    if (file_buf == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    ngx_read_file(&file, (u_char *)file_buf, size, 0);
+
+    if (ngx_close_file(file.fd) == NGX_FILE_ERROR) {
+        ngx_log_error(NGX_LOG_ALERT, file.log, ngx_errno,
+                      ngx_close_file_n " \"%s\" failed", file.name.data);
+    }
+
+    /* Tokenize the buffer */
+    lang_code = strtok(file_buf, delim_lang);
+    hello_world_str = strtok(NULL, delim_hello);
+    key.data = (u_char *) lang_code;
+    key.len  = strlen(lang_code);
+    ngx_hash_add_key(&hwlc->hash_keys, &key, hello_world_str, 0);
+
+    while ((lang_code = strtok(NULL, delim_lang)) != NULL && (hello_world_str = strtok(NULL, delim_hello)) != NULL) {
+        key.data = (u_char *) lang_code;
+        key.len  = strlen(lang_code);
+        if (ngx_hash_add_key(&hwlc->hash_keys, &key, hello_world_str, 0) != NGX_OK) {
+            ngx_conf_log_error(NGX_LOG_ERR, cf, 0, "Error adding key");
+            return NGX_CONF_ERROR;
+	}
+    }
+
+    /* Initialize the Hash Table */
+    hash.hash = &hwlc->hash;
+    hash.key = ngx_hash_key_lc;
+    hash.max_size = HELLO_WORLD_HASH_MAX_SIZE;
+    hash.bucket_size = ngx_cacheline_size;
+    hash.name = "hello_world_hash";
+    hash.pool = cf->pool;
+    hash.temp_pool = cf->temp_pool;
+
+    if (ngx_hash_init(&hash, hwlc->hash_keys.keys.elts, hwlc->hash_keys.keys.nelts) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
@@ -210,8 +308,12 @@ ngx_http_hello_world_create_loc_conf(ngx_conf_t *cf)
     if (conf == NULL) {
         return NGX_CONF_ERROR;
     }
-    conf->hello_world.len = sizeof(ngx_hello_world);
-    conf->hello_world.data = ngx_hello_world;
+    
+    conf->hash_keys.pool = cf->pool;
+    conf->hash_keys.temp_pool = cf->temp_pool;
+
+    ngx_hash_keys_array_init(&conf->hash_keys, NGX_HASH_SMALL);
+
     return conf;
 } /* ngx_http_hello_world_create_loc_conf */
 
@@ -230,10 +332,5 @@ ngx_http_hello_world_create_loc_conf(ngx_conf_t *cf)
 static char *
 ngx_http_hello_world_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
-    ngx_http_hello_world_loc_conf_t  *prev = parent;
-    ngx_http_hello_world_loc_conf_t  *conf = child;
-
-    ngx_conf_merge_str_value(conf->hello_world, prev->hello_world, "hello world");
-
     return NGX_CONF_OK;
 }
