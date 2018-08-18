@@ -1,4 +1,4 @@
-# Hello World Module for Nginx
+# Hello World Module for NGINX
 
 ## Introduction
 
@@ -26,28 +26,20 @@ This small extension to the base hello\_world module adds an argument to print h
        
    2. Build NGINX as usual with `make`.
    
-   3. Configure the module. There's only one directive `hello_world [en|es|fr|in]`
+   3. Configure the module. There's only one directive `hello_world file_name.dat`
       that is supported in the **location** context only.
-
-    * en: hello world
-    
-    * fr: bounjour monde
-    
-    * in: namaste duniya
- 
-    * es: hola mundo
       
       Example:
           
-          location = /test {
+          location / {
              
-             hello_world in;
+             hello_world /etc/nginx/conf.d/langs.dat;
           
           }
 
       Now doing something like:
           
-          curl -i http://example.com/test
+          curl -H "Accept-Language: in" http://example.com/
           
       should return the **namaste duniya** string as the response body.
 
