@@ -122,6 +122,7 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
     ngx_uint_t key, response_size=0, size, quality, buf_index=0;
     u_char *hello_world_str, *curr_key;
     char *quality_str;
+    float quality_f;
 
     hwlc = ngx_http_get_module_loc_conf(r, ngx_http_hello_world_module);
     if (hwlc == NULL) {
@@ -139,11 +140,16 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
 
 	while (curr_key != NULL && buf_index < HELLO_WORLD_MAX_LANGS) {
 	    /* Search for quality value ie ;q=0.5 */
-	    quality=10;
+	    quality = 10;
+	    quality_f = 10;
 	    quality_str = ngx_strchr(curr_key, ';');
 	    if (quality_str != NULL) {
 	        *quality_str++ = '\0';
-                sscanf(quality_str, "q=0.%1ld", &quality);
+                sscanf(quality_str, "q=%f", &quality_f);
+		quality = (ngx_uint_t) (quality_f * 10);
+		if (quality > 10) {
+		    quality = 10;
+		}
 	    }
 	    
             key = ngx_hash_key_lc(curr_key, ngx_strlen(curr_key));
