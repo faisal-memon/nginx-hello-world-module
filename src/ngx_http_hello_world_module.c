@@ -33,6 +33,7 @@
 #define HELLO_WORLD_FILE_SIZE 2048
 #define HELLO_WORLD_HASH_MAX_SIZE 256
 #define HELLO_WORLD_MAX_LANGS 50
+#define MAX_QUALITY 1000
 #define ACC_LANG_NOT_FOUND "Accept Language header not found or no valid languages found."
 
 static char *ngx_http_hello_world(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
@@ -140,15 +141,15 @@ static ngx_int_t ngx_http_hello_world_handler(ngx_http_request_t *r)
 
 	while (curr_key != NULL && buf_index < HELLO_WORLD_MAX_LANGS) {
 	    /* Search for quality value ie ;q=0.5 */
-	    quality = 10;
-	    quality_f = 10;
+	    quality = MAX_QUALITY;
+	    quality_f = MAX_QUALITY;
 	    quality_str = ngx_strchr(curr_key, ';');
 	    if (quality_str != NULL) {
 	        *quality_str++ = '\0';
                 sscanf(quality_str, "q=%f", &quality_f);
-		quality = (ngx_uint_t) (quality_f * 10);
-		if (quality > 10) {
-		    quality = 10;
+		quality = (ngx_uint_t) (quality_f * MAX_QUALITY);
+		if (quality > MAX_QUALITY) {
+		    quality = MAX_QUALITY;
 		}
 	    }
 	    
